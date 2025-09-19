@@ -120,7 +120,7 @@ def get_template_headers(ws: Worksheet) -> Tuple[Dict[int, str], Dict[str, int],
     by_col = {}
     by_name = {}
     for c in range(1, max_col + 1):
-        v = ws.cell(row=1, column=c).value
+        v = ws.cell(row=2, column=c).value
         if v is not None and str(v).strip() != "":
             by_col[c] = str(v).strip()
             by_name[normalize(v)] = c
