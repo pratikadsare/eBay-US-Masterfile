@@ -110,7 +110,7 @@ def infer_mapping(df_map: pd.DataFrame) -> Dict[str, str]:
 
 def get_template_headers(ws: Worksheet) -> Tuple[Dict[int, str], Dict[str, int], int]:
     """
-    Read row-1 headers from the first sheet.
+    Read row-2 headers from the first sheet.
     Returns:
       - by_col: {col_idx -> header_text}
       - by_name: {normalized_header_text -> col_idx}
@@ -120,7 +120,7 @@ def get_template_headers(ws: Worksheet) -> Tuple[Dict[int, str], Dict[str, int],
     by_col = {}
     by_name = {}
     for c in range(1, max_col + 1):
-        v = ws.cell(row=2, column=c).value
+        v = ws.cell(row=2, column=c).value   # <-- CHANGED to row 2
         if v is not None and str(v).strip() != "":
             by_col[c] = str(v).strip()
             by_name[normalize(v)] = c
@@ -149,16 +149,14 @@ def copy_default_cell_to_row(ws: Worksheet, src_row: int, dst_row: int, col_idx:
     src = ws.cell(row=src_row, column=col_idx)
     dst = ws.cell(row=dst_row, column=col_idx)
 
-    # Style first (so number format etc. exists regardless of the value)
     copy_style(src, dst)
 
     if is_cell_formula(src) and isinstance(src.value, str):
-        # Adjust formula to the destination row, if translator exists
         if HAS_TRANSLATOR:
             try:
                 dst.value = Translator(src.value, origin=src.coordinate).translate_formula(dst.coordinate)
             except Exception:
-                dst.value = src.value  # fallback: same formula (might keep row refs)
+                dst.value = src.value
         else:
             dst.value = src.value
     else:
@@ -177,18 +175,19 @@ def process_workbook(
 ) -> Tuple[int, List[str]]:
     """
     Apply mapping into the FIRST sheet only.
+    - Mapping is based on row 2 headers.
     - Data filling begins from ROW 3.
-    - Row 2 stays untouched.
+    - Row 2 stays untouched as header row.
     - Defaults in row 3 are preserved and copied down to each SKU row.
     - All other sheets remain untouched.
     Returns: (num_rows_written, skipped_columns_due_to_defaults)
     """
     ws: Worksheet = wb.worksheets[0]  # first sheet only
 
-    # Headers from row-1
+    # Headers from row-2
     by_col, by_name, max_col = get_template_headers(ws)
 
-    # Identify protected columns (i.e., default exists in row 3 and must not be overwritten)
+    # Identify protected columns (defaults in row 3)
     protected_cols = set()
     defaults_present_cols = set()
     for c in range(1, max_col + 1):
@@ -196,26 +195,22 @@ def process_workbook(
             protected_cols.add(c)
             defaults_present_cols.add(c)
 
-    # Normalize mapping keys to match row-1 headers
+    # Normalize mapping
     normalized_template_to_raw = {}
     for tmpl_hdr, raw_hdr in mapping.items():
         tmpl_key = normalize(tmpl_hdr)
         if tmpl_key in by_name:
             normalized_template_to_raw[tmpl_hdr] = raw_hdr
-        else:
-            # Allow slight fuzz: sometimes mapping might include exact-cased header; try stricter normalize
-            if tmpl_key not in by_name:
-                pass  # we'll flag later if needed
 
-    # Validate mapped template headers exist in row 1
+    # Validate template headers
     missing_template_headers = [h for h in mapping.keys() if normalize(h) not in by_name]
     if missing_template_headers:
         raise ValueError(
-            "These template headers from your mapping do not exist in row‑1 of the masterfile: "
+            "These template headers from your mapping do not exist in row-2 of the masterfile: "
             + ", ".join(missing_template_headers)
         )
 
-    # Validate mapped raw headers exist in raw_df columns (case-insensitive)
+    # Validate raw headers
     raw_lookup = {normalize(c): c for c in raw_df.columns}
     missing_raw_headers = [r for r in mapping.values() if normalize(r) not in raw_lookup]
     if missing_raw_headers:
@@ -224,10 +219,9 @@ def process_workbook(
             + ", ".join(missing_raw_headers)
         )
 
-    # Build a filtered raw dataframe to count real rows (any mapped column having data)
+    # Filter non-empty rows
     mapped_raw_cols = [raw_lookup[normalize(r)] for r in mapping.values()]
     candidate = raw_df[mapped_raw_cols].copy()
-    # drop rows that are entirely empty across mapped columns
     non_empty_mask = ~(candidate.applymap(lambda x: (pd.isna(x) or str(x).strip() == "")).all(axis=1))
     data_df = raw_df[non_empty_mask].reset_index(drop=True)
 
@@ -235,14 +229,13 @@ def process_workbook(
     if n_rows == 0:
         return 0, []
 
-    # Precompute a list of (template_col_idx, raw_col_name)
+    # Precompute pairs
     template_to_raw_pairs: List[Tuple[int, str]] = []
     for tmpl_hdr, raw_hdr in mapping.items():
         col_idx = by_name[normalize(tmpl_hdr)]
         raw_col = raw_lookup[normalize(raw_hdr)]
         template_to_raw_pairs.append((col_idx, raw_col))
 
-    # Track which mapped template columns we skip because row-3 has defaults
     skipped_due_to_defaults = set()
 
     # Write rows starting at row=3
@@ -250,34 +243,27 @@ def process_workbook(
     for i in range(n_rows):
         target_row = start_row + i
 
-        # 1) First, copy defaults from row 3 to target_row for ALL columns that have defaults
         if target_row > 3:
             for c in defaults_present_cols:
                 copy_default_cell_to_row(ws, src_row=3, dst_row=target_row, col_idx=c)
 
-        # 2) Then write mapped values for this row into non-protected columns only
         for col_idx, raw_col in template_to_raw_pairs:
             if col_idx in protected_cols:
-                # do not overwrite defaults
                 continue
             cell = ws.cell(row=target_row, column=col_idx)
-
-            # Copy style from row 3 to keep formatting consistent even in non-default columns
             copy_style(ws.cell(row=3, column=col_idx), cell)
-
             val = data_df.iloc[i][raw_col]
             if pd.isna(val):
                 val = None
             cell.value = val
 
-    # Prepare skipped columns (names) for UI display
-    by_col = {c: ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)}
+    by_col = {c: ws.cell(row=2, column=c).value for c in range(1, ws.max_column + 1)}
     skipped_names = []
     for tmpl_hdr, raw_hdr in mapping.items():
         cidx = None
         key = normalize(tmpl_hdr)
         for c in range(1, ws.max_column + 1):
-            v = ws.cell(row=1, column=c).value
+            v = ws.cell(row=2, column=c).value
             if v is not None and normalize(v) == key:
                 cidx = c
                 break
@@ -293,14 +279,12 @@ def process_workbook(
 st.title("eBay Masterfile Processor")
 st.caption("• Fixed template is always fetched fresh from Google Sheets • Only the first sheet is updated • All other sheets remain untouched")
 
-# Uploaders (exactly two: Raw + Mapping)
 col1, col2 = st.columns(2)
 with col1:
     raw_file = st.file_uploader("Upload Raw sheet (CSV/XLSX)", type=ACCEPTED_RAW_TYPES, key="raw_upload")
 with col2:
     mapping_file = st.file_uploader("Upload Mapping file (CSV/XLSX)", type=ACCEPTED_MAP_TYPES, key="map_upload")
 
-# Optional guidance (no extra options in the app)
 with st.expander("Mapping file guidance (format)", expanded=False):
     st.markdown(
         """
@@ -316,25 +300,21 @@ with st.expander("Mapping file guidance (format)", expanded=False):
         Price,Price
         Quantity,Qty
         ```
-        - Mapping is matched to **row‑1 headers** of the template.  
-        - Data writing begins at **row 3** (row 2 remains untouched).  
+        - Mapping is matched to **row-2 headers** of the template.  
+        - Data writing begins at **row 3** (row 2 is header row and remains untouched).  
         - Any **defaults in row 3** (e.g., Site ID, Currency) are **preserved** and copied down for each SKU row.  
         """
     )
 
-# Process button appears only when both files are present
 if raw_file and mapping_file:
     try:
-        # 1) Read user uploads
         raw_df = read_any_dataframe(raw_file)
         map_df = read_any_dataframe(mapping_file)
         mapping = infer_mapping(map_df)
 
-        # 2) Fetch the latest template XLSX
         xlsx_bytes = fetch_latest_template_xlsx_bytes(GSHEET_LINK)
 
-        # 3) Load workbook and process (first sheet only)
-        wb = load_workbook(filename=io.BytesIO(xlsx_bytes), data_only=False)  # keep formulas intact
+        wb = load_workbook(filename=io.BytesIO(xlsx_bytes), data_only=False)
         num_rows, skipped_cols = process_workbook(wb, raw_df, mapping)
 
         if num_rows == 0:
@@ -343,16 +323,15 @@ if raw_file and mapping_file:
             st.success(f"Filled {num_rows} row(s) into the first sheet starting at row 3.")
             if skipped_cols:
                 st.info(
-                    "These mapped template columns were **not** overwritten because row‑3 contains defaults: "
+                    "These mapped template columns were **not** overwritten because row-3 contains defaults: "
                     + ", ".join(skipped_cols)
                 )
 
-        # 4) Save to buffer and offer download
         out_buf = io.BytesIO()
         wb.save(out_buf)
         out_buf.seek(0)
 
-        today_str = dt.date.today().isoformat()  # YYYY-MM-DD
+        today_str = dt.date.today().isoformat()
         download_name = f"ebay_masterfile_filled_{today_str}.xlsx"
         st.download_button(
             label="⬇️ Download filled masterfile",
@@ -362,7 +341,6 @@ if raw_file and mapping_file:
             type="primary",
         )
 
-        # Optional preview (first 5 of raw)
         with st.expander("Preview: first 5 rows of your Raw sheet"):
             st.dataframe(raw_df.head(5))
 
