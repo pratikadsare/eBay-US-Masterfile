@@ -21,7 +21,7 @@ except Exception:
 # ----------------------------
 # CONFIG / CONSTANTS
 # ----------------------------
-st.set_page_config(page_title="eBay Masterfile Processor", layout="wide")
+st.set_page_config(page_title="eBay-US Masterfile Processor", layout="wide")
 
 # Fixed template: ALWAYS fetched from this Google Sheet (no upload option)
 GSHEET_LINK = "https://docs.google.com/spreadsheets/d/1H1X0qzQe0dZ0EguNMEGejr8zrDUGjDph/edit?usp=sharing&ouid=101570581440149692248&rtpof=true&sd=true"
