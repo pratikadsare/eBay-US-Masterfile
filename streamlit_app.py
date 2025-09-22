@@ -35,7 +35,7 @@ START_WRITE_ROW = 2     # Begin filling from row 2 now
 # ----------------------------
 # UI HEADER (centered)
 # ----------------------------
-st.markdown("<h1 style='text-align:center; margin-bottom:0.2rem;'>ebay masterfile filler</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align:center; margin-bottom:0.2rem;'>eBay-US Masterfile Filler</h1>", unsafe_allow_html=True)
 st.markdown("<div style='text-align:center; font-size:1.05rem; opacity:0.85;'>Innovation in Action ⏐ Growth in Motion</div>", unsafe_allow_html=True)
 st.divider()
 
@@ -258,16 +258,16 @@ def process_workbook(
 # ----------------------------
 # INPUT SECTIONS (3 required)
 # ----------------------------
-st.subheader("1) Upload Template (XLS/XLSX)")
-template_file = st.file_uploader("Upload the eBay masterfile template", type=ACCEPTED_TEMPLATE_TYPES, key="template_upload")
+st.subheader("1) Upload Template")
+template_file = st.file_uploader("Upload the eBay-US masterfile template", type=ACCEPTED_TEMPLATE_TYPES, key="template_upload")
 
-st.subheader("2) Upload Raw sheet (CSV/XLSX)")
+st.subheader("2) Upload Raw sheet/ PXM Report (CSV/XLSX)")
 raw_file = st.file_uploader("Upload Raw sheet", type=ACCEPTED_RAW_TYPES, key="raw_upload")
 
-st.subheader("3) Upload Mapping file (Column 1 = TEMPLATE, Column 2 = RAW)")
+st.subheader("3) Upload Mapping file")
 mapping_file = st.file_uploader("Upload Mapping file", type=ACCEPTED_MAP_TYPES, key="map_upload")
 
-with st.expander("Mapping file guidance (updated order: TEMPLATE first, RAW second)", expanded=False):
+with st.expander("Mapping file guidance", expanded=False):
     st.markdown(
         """
         **Required order:** the **first column is TEMPLATE** and the **second column is RAW**.  
@@ -283,7 +283,7 @@ with st.expander("Mapping file guidance (updated order: TEMPLATE first, RAW seco
         ```
         - Mapping is matched to **row‑1 headers** of the Template.  
         - Data writing begins at **row 2** (row 2 now serves as the defaults row).  
-        - Any **defaults in row 2** (e.g., Site ID, Currency) are **preserved** and copied down for each SKU row.  
+        - Any **defaults in row 2** (e.g., Localized For, Condition, Measurement System, etc) are **preserved** and copied down for each SKU row.  
         """
     )
 
